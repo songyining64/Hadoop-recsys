@@ -1,4 +1,35 @@
-Strict Precision@10 / Recall@10 (per-user vs label=1) often 0 when each user has one row and CF excludes interacted items.
-Precision@10 fused=0.0000 Recall@10 fused=0.0000
-Precision@10 cf_only=0.0000 Recall@10 cf_only=0.0000
-Global hit rate in Top-10 (rec item in any test positive): fused=0.0520 cf_only=0.0520
+=== Protocol ===
+Train/test: USER-level split 75/25 (seed=42); no user in both sets.
+Train internal: 85/15 train/val (seed=11) for model & alpha selection.
+Negative sampling: train negatives downsampled toward ~1:3 pos:neg on train users.
+Item-CF: user-level co-occurrence with category proxy item (see report).
+Fusion: best model among LR/GBT/RF by val AUC; α chosen by val AUC on labeled candidates.
+
+=== Models (val AUC) ===
+LR=0.9915 GBT=0.9993 RF=0.9993 | selected=RF
+best_alpha=0.5500
+
+=== Test users (diversified Top10, max 4/category) ===
+Strict Precision@10=0.0000 Recall@10=0.0000
+Global hit rate@10 fused=0.0256 cf_only=0.0256 Recall@10(rel)=0.0000 NDCG@10=0.0000
+Bootstrap mean strict-P@10: 0.0000 95% CI [0.0000, 0.0000]
+
+=== Candidates ROC (test users, fused) ===
+AUC=0.0000 AP=0.0000
+
+=== Cold start (engineering note) ===
+New item: fallback to category top-popular from hive_item_rollups / compute_cat_top1.
+New user: demographic average features + popular-in-category candidates.
+Diversity: greedy cap 4 items per category in Top-10 (post-rank).
+
+=== Hive / SQL ===
+hive_compat.sql runs in Spark SQL (HiveQL-compatible); no HiveServer required for this repo.
+Rollup views: hive_user_rollups, hive_item_rollups (see pipeline/hive_compat.sql).
+
+=== Hadoop / YARN (course) ===
+MapReduce: set RECSYS_USE_YARN=1 in pipeline/run_mapreduce.sh context; YARN UI http://localhost:8088 .
+Docker compose sets HADOOP_OPTS=-Djava.net.preferIPv4Stack=true to ease RM host resolution.
+MR stage timings: output/pipeline_mr_timing.txt ; container memory: see hadoop-docker/hadoop.env (map 512MB, reduce 1536MB heap).
+
+=== Runtime ===
+spark_pipeline_sec=302.2
