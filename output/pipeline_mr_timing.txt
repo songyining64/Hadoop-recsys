@@ -1,0 +1,57 @@
+[2026-04-26T06:00:59+00:00] MapReduce framework: local (set RECSYS_USE_YARN=1 for YARN)
+[2026-04-26T06:00:59+00:00] === MapReduce pipeline start ===
+[2026-04-26T06:01:28+00:00] MapReduce framework: local (set RECSYS_USE_YARN=1 for YARN)
+[2026-04-26T06:01:28+00:00] === MapReduce pipeline start ===
+[2026-04-26T06:02:28+00:00] MapReduce framework: local (set RECSYS_USE_YARN=1 for YARN)
+[2026-04-26T06:02:28+00:00] === MapReduce pipeline start ===
+[2026-04-26T06:02:51+00:00] MapReduce framework: local (set RECSYS_USE_YARN=1 for YARN)
+[2026-04-26T06:02:51+00:00] === MapReduce pipeline start ===
+[2026-04-26T06:03:03+00:00] cat_top1 local+hdfs 3s
+[2026-04-26T06:03:10+00:00] Job A1 7s
+[2026-04-26T06:03:18+00:00] Job A2 8s
+[2026-04-26T06:03:26+00:00] item_totals 8s
+[2026-04-26T06:03:35+00:00] B1a 9s
+[2026-04-26T06:03:42+00:00] B1b 7s
+[2026-04-26T06:03:50+00:00] purchases 8s
+[2026-04-26T08:20:20+00:00] B2 9s
+[2026-04-26T08:20:50+00:00] cf_candidates 7s
+[2026-04-26T08:20:50+00:00] === MR tail total 42s ===
+[2026-04-26T08:31:23+00:00] MapReduce framework: local (set RECSYS_USE_YARN=1 for YARN)
+[2026-04-26T08:31:23+00:00] === MapReduce pipeline start ===
+[2026-04-26T08:31:36+00:00] cat_top1 local+hdfs 5s
+[2026-04-26T08:31:47+00:00] Job A1 11s
+[2026-04-26T08:31:57+00:00] Job A2 10s
+[2026-04-26T08:32:05+00:00] item_totals 8s
+[2026-04-26T08:32:13+00:00] B1a 8s
+[2026-04-26T08:32:22+00:00] B1b 9s
+[2026-04-26T08:32:30+00:00] purchases 8s
+[2026-04-26T08:32:41+00:00] B2 8s
+[2026-04-26T08:33:06+00:00] cf_candidates 8s
+[2026-04-26T08:33:06+00:00] === MapReduce total 103s ===
+drwxr-xr-x   - root supergroup          0 2026-04-26 08:31 /recsys/a1
+-rw-r--r--   3 root supergroup          0 2026-04-26 08:31 /recsys/a1/_SUCCESS
+-rw-r--r--   3 root supergroup    2142758 2026-04-26 08:31 /recsys/a1/part-00000
+drwxr-xr-x   - root supergroup          0 2026-04-26 08:32 /recsys/b1a
+-rw-r--r--   3 root supergroup          0 2026-04-26 08:32 /recsys/b1a/_SUCCESS
+-rw-r--r--   3 root supergroup    2199494 2026-04-26 08:32 /recsys/b1a/part-00000
+-rw-r--r--   3 root supergroup        132 2026-04-26 08:31 /recsys/cat_top1.tsv
+drwxr-xr-x   - root supergroup          0 2026-04-26 08:33 /recsys/cf_candidates
+-rw-r--r--   3 root supergroup    1651161 2026-04-26 08:33 /recsys/cf_candidates/part-00000
+drwxr-xr-x   - root supergroup          0 2026-04-26 08:32 /recsys/cooc
+-rw-r--r--   3 root supergroup          0 2026-04-26 08:32 /recsys/cooc/_SUCCESS
+-rw-r--r--   3 root supergroup    1936704 2026-04-26 08:32 /recsys/cooc/part-00000
+drwxr-xr-x   - root supergroup          0 2026-04-26 08:32 /recsys/item_sim
+-rw-r--r--   3 root supergroup          0 2026-04-26 08:32 /recsys/item_sim/_SUCCESS
+-rw-r--r--   3 root supergroup    3479954 2026-04-26 08:32 /recsys/item_sim/part-00000
+drwxr-xr-x   - root supergroup          0 2026-04-26 08:32 /recsys/item_topn
+-rw-r--r--   3 root supergroup     833743 2026-04-26 08:32 /recsys/item_topn/part-00000
+drwxr-xr-x   - root supergroup          0 2026-04-26 08:32 /recsys/item_totals
+-rw-r--r--   3 root supergroup          0 2026-04-26 08:32 /recsys/item_totals/_SUCCESS
+-rw-r--r--   3 root supergroup     854003 2026-04-26 08:32 /recsys/item_totals/part-00000
+drwxr-xr-x   - root supergroup          0 2026-04-26 08:32 /recsys/purchases
+-rw-r--r--   3 root supergroup          0 2026-04-26 08:32 /recsys/purchases/_SUCCESS
+-rw-r--r--   3 root supergroup     989626 2026-04-26 08:32 /recsys/purchases/part-00000
+drwxr-xr-x   - root supergroup          0 2026-04-26 08:31 /recsys/ratings
+-rw-r--r--   3 root supergroup          0 2026-04-26 08:31 /recsys/ratings/_SUCCESS
+-rw-r--r--   3 root supergroup    2142758 2026-04-26 08:31 /recsys/ratings/part-00000
+-rw-r--r--   3 root supergroup   13020330 2026-04-26 08:31 /recsys/raw.csv

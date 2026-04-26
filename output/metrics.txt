@@ -1,0 +1,4 @@
+Strict Precision@10 / Recall@10 (per-user vs label=1) often 0 when each user has one row and CF excludes interacted items.
+Precision@10 fused=0.0000 Recall@10 fused=0.0000
+Precision@10 cf_only=0.0000 Recall@10 cf_only=0.0000
+Global hit rate in Top-10 (rec item in any test positive): fused=0.0520 cf_only=0.0520

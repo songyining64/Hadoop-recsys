@@ -1,0 +1,80 @@
+services:
+  namenode:
+    build: ./namenode-python
+    platform: linux/amd64
+    container_name: namenode
+    ports:
+      - "9870:9870"
+      - "9000:9000"
+    volumes:
+      - hadoop_namenode:/hadoop/dfs/name
+      - ../:/workspace
+    environment:
+      - CLUSTER_NAME=test
+      - HADOOP_OPTS=-Djava.net.preferIPv4Stack=true
+    env_file:
+      - ./hadoop.env
+
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    platform: linux/amd64
+    container_name: datanode
+    volumes:
+      - hadoop_datanode:/hadoop/dfs/data
+    environment:
+      SERVICE_PRECONDITION: "namenode:9870"
+    env_file:
+      - ./hadoop.env
+
+  resourcemanager:
+    image: bde2020/hadoop-resourcemanager:2.0.0-hadoop3.2.1-java8
+    platform: linux/amd64
+    container_name: resourcemanager
+    ports:
+      - "8088:8088"
+    environment:
+      SERVICE_PRECONDITION: "namenode:9000 namenode:9870 datanode:9864"
+      HADOOP_OPTS: "-Djava.net.preferIPv4Stack=true"
+    env_file:
+      - ./hadoop.env
+
+  nodemanager:
+    build: ./nodemanager-python
+    platform: linux/amd64
+    container_name: nodemanager
+    ports:
+      - "8042:8042"
+    environment:
+      SERVICE_PRECONDITION: "namenode:9000 namenode:9870 datanode:9864 resourcemanager:8088"
+      HADOOP_OPTS: "-Djava.net.preferIPv4Stack=true"
+    env_file:
+      - ./hadoop.env
+
+  historyserver:
+    image: bde2020/hadoop-historyserver:2.0.0-hadoop3.2.1-java8
+    platform: linux/amd64
+    container_name: historyserver
+    ports:
+      - "8188:8188"
+    environment:
+      SERVICE_PRECONDITION: "namenode:9000 namenode:9870 datanode:9864 resourcemanager:8088"
+    volumes:
+      - hadoop_historyserver:/hadoop/yarn/timeline
+    env_file:
+      - ./hadoop.env
+
+  spark-runner:
+    build: ./spark-runner
+    platform: linux/amd64
+    container_name: spark-runner
+    environment:
+      HADOOP_CONF_DIR: /opt/hadoop-conf
+    volumes:
+      - ../:/workspace
+      - ./spark-conf:/opt/hadoop-conf:ro
+    command: [ "tail", "-f", "/dev/null" ]
+
+volumes:
+  hadoop_namenode:
+  hadoop_datanode:
+  hadoop_historyserver:

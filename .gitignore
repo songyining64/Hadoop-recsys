@@ -1,0 +1,25 @@
+# MapReduce / pipeline temp
+pipeline/.mr_tmp/
+
+# Local wordcount / scratch MR output
+wc-out-docker/
+
+# Python
+__pycache__/
+*.py[cod]
+.Python
+*.so
+.venv/
+venv/
+.env
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Spark / Hadoop local junk
+metastore_db/
+derby.log
+spark-warehouse/
