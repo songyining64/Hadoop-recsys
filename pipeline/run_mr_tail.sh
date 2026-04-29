@@ -2,6 +2,8 @@
 # Continue pipeline from B2 (assumes /recsys/cooc, ratings, purchases, item_totals exist).
 set -euo pipefail
 export PYTHONIOENCODING=utf-8
+export PYTHONUNBUFFERED=1
+PY="${PY:-python3 -u}"
 export PATH="/opt/hadoop-3.2.1/bin:/opt/hadoop-3.2.1/sbin:${PATH:-}"
 STREAM_JAR="/opt/hadoop-3.2.1/share/hadoop/tools/lib/hadoop-streaming-3.2.1.jar"
 ROOT="/workspace"
@@ -28,8 +30,8 @@ hadoop jar "${STREAM_JAR}" \
   -D mapreduce.job.name=recsys_B2_cosine \
   -D stream.num.map.output.key.fields=2 \
   -files "${TMP}/item_totals.txt#item_totals.txt,${PIPE}/mr_b2_map.py,${PIPE}/mr_b2_red.py" \
-  -mapper "python3 mr_b2_map.py" \
-  -reducer "python3 mr_b2_red.py" \
+  -mapper "${PY} mr_b2_map.py" \
+  -reducer "${PY} mr_b2_red.py" \
   -input /recsys/cooc \
   -output /recsys/item_sim
 logt "B2 $(( $(date +%s) - T ))s"

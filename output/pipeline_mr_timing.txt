@@ -55,3 +55,96 @@ drwxr-xr-x   - root supergroup          0 2026-04-26 08:31 /recsys/ratings
 -rw-r--r--   3 root supergroup          0 2026-04-26 08:31 /recsys/ratings/_SUCCESS
 -rw-r--r--   3 root supergroup    2142758 2026-04-26 08:31 /recsys/ratings/part-00000
 -rw-r--r--   3 root supergroup   13020330 2026-04-26 08:31 /recsys/raw.csv
+[2026-04-27T09:04:12+00:00] MapReduce framework: local (set RECSYS_USE_YARN=1 for YARN)
+[2026-04-27T09:04:12+00:00] === MapReduce pipeline start ===
+[2026-04-27T09:04:23+00:00] cat_top1 local+hdfs 4s
+[2026-04-27T09:04:30+00:00] Job A1 7s
+[2026-04-27T09:04:37+00:00] Job A2 7s
+[2026-04-27T09:04:45+00:00] item_totals 8s
+[2026-04-27T09:04:53+00:00] B1a 8s
+[2026-04-27T09:04:59+00:00] B1b 6s
+[2026-04-27T09:05:07+00:00] purchases 8s
+[2026-04-27T09:05:16+00:00] B2 7s
+[2026-04-27T09:05:42+00:00] cf_candidates 8s
+[2026-04-27T09:05:42+00:00] === MapReduce total 90s ===
+drwxr-xr-x   - root supergroup          0 2026-04-27 09:04 /recsys/a1
+-rw-r--r--   3 root supergroup          0 2026-04-27 09:04 /recsys/a1/_SUCCESS
+-rw-r--r--   3 root supergroup    2142758 2026-04-27 09:04 /recsys/a1/part-00000
+drwxr-xr-x   - root supergroup          0 2026-04-27 09:04 /recsys/b1a
+-rw-r--r--   3 root supergroup          0 2026-04-27 09:04 /recsys/b1a/_SUCCESS
+-rw-r--r--   3 root supergroup    2199494 2026-04-27 09:04 /recsys/b1a/part-00000
+-rw-r--r--   3 root supergroup        132 2026-04-27 09:04 /recsys/cat_top1.tsv
+drwxr-xr-x   - root supergroup          0 2026-04-27 09:05 /recsys/cf_candidates
+-rw-r--r--   3 root supergroup    1845535 2026-04-27 09:05 /recsys/cf_candidates/part-00000
+drwxr-xr-x   - root supergroup          0 2026-04-27 09:04 /recsys/cooc
+-rw-r--r--   3 root supergroup          0 2026-04-27 09:04 /recsys/cooc/_SUCCESS
+-rw-r--r--   3 root supergroup    1936704 2026-04-27 09:04 /recsys/cooc/part-00000
+drwxr-xr-x   - root supergroup          0 2026-04-27 09:05 /recsys/item_sim
+-rw-r--r--   3 root supergroup          0 2026-04-27 09:05 /recsys/item_sim/_SUCCESS
+-rw-r--r--   3 root supergroup    3476242 2026-04-27 09:05 /recsys/item_sim/part-00000
+drwxr-xr-x   - root supergroup          0 2026-04-27 09:05 /recsys/item_topn
+-rw-r--r--   3 root supergroup     928830 2026-04-27 09:05 /recsys/item_topn/part-00000
+drwxr-xr-x   - root supergroup          0 2026-04-27 09:04 /recsys/item_totals
+-rw-r--r--   3 root supergroup          0 2026-04-27 09:04 /recsys/item_totals/_SUCCESS
+-rw-r--r--   3 root supergroup     854003 2026-04-27 09:04 /recsys/item_totals/part-00000
+drwxr-xr-x   - root supergroup          0 2026-04-27 09:05 /recsys/purchases
+-rw-r--r--   3 root supergroup          0 2026-04-27 09:05 /recsys/purchases/_SUCCESS
+-rw-r--r--   3 root supergroup     989626 2026-04-27 09:05 /recsys/purchases/part-00000
+drwxr-xr-x   - root supergroup          0 2026-04-27 09:04 /recsys/ratings
+-rw-r--r--   3 root supergroup          0 2026-04-27 09:04 /recsys/ratings/_SUCCESS
+-rw-r--r--   3 root supergroup    2142758 2026-04-27 09:04 /recsys/ratings/part-00000
+-rw-r--r--   3 root supergroup   13020330 2026-04-27 09:04 /recsys/raw.csv
+[2026-04-27T09:12:30+00:00] MapReduce framework: local (set RECSYS_USE_YARN=1 for YARN)
+[2026-04-27T09:12:30+00:00] === MapReduce pipeline start ===
+[2026-04-27T09:12:41+00:00] cat_top1 local+hdfs 3s
+[2026-04-27T09:12:49+00:00] Job A1 8s
+[2026-04-27T09:12:56+00:00] Job A2 7s
+[2026-04-27T09:13:05+00:00] item_totals 9s
+[2026-04-27T09:13:16+00:00] B1a 11s
+[2026-04-27T09:13:39+00:00] B1b 23s
+[2026-04-27T09:13:46+00:00] purchases 7s
+[2026-04-27T09:13:58+00:00] B2 9s
+[2026-04-27T09:14:25+00:00] cf_candidates 8s
+[2026-04-27T09:14:25+00:00] === MapReduce total 115s ===
+drwxr-xr-x   - root supergroup          0 2026-04-27 09:12 /recsys/a1
+-rw-r--r--   3 root supergroup          0 2026-04-27 09:12 /recsys/a1/_SUCCESS
+-rw-r--r--   3 root supergroup    1234548 2026-04-27 09:12 /recsys/a1/part-00000
+drwxr-xr-x   - root supergroup          0 2026-04-27 09:13 /recsys/b1a
+-rw-r--r--   3 root supergroup          0 2026-04-27 09:13 /recsys/b1a/_SUCCESS
+-rw-r--r--   3 root supergroup   73241908 2026-04-27 09:13 /recsys/b1a/part-00000
+-rw-r--r--   3 root supergroup        245 2026-04-27 09:12 /recsys/cat_top1.tsv
+drwxr-xr-x   - root supergroup          0 2026-04-27 09:14 /recsys/cf_candidates
+-rw-r--r--   3 root supergroup     277013 2026-04-27 09:14 /recsys/cf_candidates/part-00000
+drwxr-xr-x   - root supergroup          0 2026-04-27 09:13 /recsys/cooc
+-rw-r--r--   3 root supergroup          0 2026-04-27 09:13 /recsys/cooc/_SUCCESS
+-rw-r--r--   3 root supergroup    8467823 2026-04-27 09:13 /recsys/cooc/part-00000
+drwxr-xr-x   - root supergroup          0 2026-04-27 09:13 /recsys/item_sim
+-rw-r--r--   3 root supergroup          0 2026-04-27 09:13 /recsys/item_sim/_SUCCESS
+-rw-r--r--   3 root supergroup   20880737 2026-04-27 09:13 /recsys/item_sim/part-00000
+drwxr-xr-x   - root supergroup          0 2026-04-27 09:14 /recsys/item_topn
+-rw-r--r--   3 root supergroup    1898470 2026-04-27 09:14 /recsys/item_topn/part-00000
+drwxr-xr-x   - root supergroup          0 2026-04-27 09:13 /recsys/item_totals
+-rw-r--r--   3 root supergroup          0 2026-04-27 09:13 /recsys/item_totals/_SUCCESS
+-rw-r--r--   3 root supergroup      18395 2026-04-27 09:13 /recsys/item_totals/part-00000
+drwxr-xr-x   - root supergroup          0 2026-04-27 09:13 /recsys/purchases
+-rw-r--r--   3 root supergroup          0 2026-04-27 09:13 /recsys/purchases/_SUCCESS
+-rw-r--r--   3 root supergroup     649867 2026-04-27 09:13 /recsys/purchases/part-00000
+drwxr-xr-x   - root supergroup          0 2026-04-27 09:12 /recsys/ratings
+-rw-r--r--   3 root supergroup          0 2026-04-27 09:12 /recsys/ratings/_SUCCESS
+-rw-r--r--   3 root supergroup    1234548 2026-04-27 09:12 /recsys/ratings/part-00000
+-rw-r--r--   3 root supergroup   10209741 2026-04-27 09:12 /recsys/raw.csv
+[2026-04-27T10:11:15+00:00] MapReduce framework: local (set RECSYS_USE_YARN=1 for YARN)
+[2026-04-27T10:11:15+00:00] === MapReduce pipeline start ===
+[2026-04-27T10:11:26+00:00] cat_top1 local+hdfs 4s
+[2026-04-27T10:11:36+00:00] Job A1 10s
+[2026-04-27T10:11:43+00:00] Job A2 7s
+[2026-04-27T10:11:51+00:00] item_totals 8s
+[2026-04-27T10:12:04+00:00] B1a 13s
+[2026-04-27T10:12:27+00:00] B1b 23s
+[2026-04-27T10:12:34+00:00] purchases 7s
+[2026-04-27T10:49:44+00:00] B2 13s
+[2026-04-27T10:50:15+00:00] cf_candidates 9s
+[2026-04-27T10:50:15+00:00] === MR tail total 47s ===
+[2026-04-27T10:55:14+00:00] MapReduce framework: local (set RECSYS_USE_YARN=1 for YARN)
+[2026-04-27T10:55:14+00:00] === MapReduce pipeline start ===
+[2026-04-27T10:55:25+00:00] cat_top1 local+hdfs 4s

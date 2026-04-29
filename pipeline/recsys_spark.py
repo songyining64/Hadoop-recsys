@@ -2,6 +2,10 @@
 """
 Spark: HiveQL-compat views, train/val protocol, negative sampling, LR/GBT/RF,
 fusion alpha sweep, AUC/PR/NDCG, stratified metrics, bootstrap CI, diversity.
+
+Evaluation: time-last or LOO positives; optional Movielens *.base/*.test via
+RECSYS_ML100K_OFFICIAL_SPLIT. Test positives missing from MR CF are injected (cf_score=0) so
+Strict/NDCG see the ground-truth item; metrics also report CF top-M hit before injection.
 """
 import os
 import time
@@ -109,13 +113,106 @@ def main():
         .getOrCreate()
     )
 
-    # --- Hive-compatible SQL (same dialect as hive_compat.sql) ---
+    # --- Load raw; train/test split (time-last, LOO-positive, or legacy user-random) ---
     raw = (
         spark.read.option("header", True)
         .option("inferSchema", True)
         .csv("hdfs://namenode:9000/recsys/raw.csv")
     )
-    raw.createOrReplaceTempView("raw_events")
+    has_event_ts = "event_ts" in raw.columns
+    eval_mode = os.environ.get("RECSYS_EVAL", "").strip().lower()
+    if not eval_mode:
+        eval_mode = "time_last" if has_event_ts else "loo_pos"
+
+    train_raw = None
+    test_raw = None
+    wrk = Path(os.environ.get("RECSYS_WORKSPACE", "/workspace"))
+    split_dir = Path(
+        os.environ.get("RECSYS_ML100K_SPLIT_DIR", str(wrk / "data/ml100k/ml-100k"))
+    )
+    official = os.environ.get("RECSYS_ML100K_OFFICIAL_SPLIT", "").strip().lower()
+    if official:
+        bf = split_dir / "{}.base".format(official)
+        tf = split_dir / "{}.test".format(official)
+        if bf.is_file() and tf.is_file():
+            bpath = bf.resolve().as_posix()
+            tpath = tf.resolve().as_posix()
+
+            def _pair_keys(path):
+                return (
+                    spark.read.option("header", False)
+                    .option("sep", "\t")
+                    .csv("file://{}".format(path))
+                    .select(
+                        F.concat(F.lit("U"), F.col("_c0").cast("string")).alias("user_id"),
+                        F.concat(F.lit("I"), F.col("_c1").cast("string")).alias("item_id"),
+                    )
+                    .distinct()
+                )
+
+            train_raw = raw.join(_pair_keys(bpath), ["user_id", "item_id"], "inner")
+            test_raw = raw.join(_pair_keys(tpath), ["user_id", "item_id"], "inner")
+            protocol_train_test = (
+                "Train/test: MovieLens official {}.base / {}.test; profiles from train split only."
+            ).format(official, official)
+        else:
+            print(
+                "RECSYS_ML100K_OFFICIAL_SPLIT={} but missing {} or {}".format(
+                    official, bf, tf
+                )
+            )
+
+    if train_raw is None:
+        if eval_mode == "user_random":
+            all_u = raw.select("user_id").distinct()
+            train_u, test_u = all_u.randomSplit([0.75, 0.25], seed=42)
+            train_raw = raw.join(train_u, "user_id", "inner")
+            test_raw = raw.join(test_u, "user_id", "inner")
+            protocol_train_test = (
+                "Train/test: USER-level random 75/25 (seed=42); profiles from train users only."
+            )
+        elif eval_mode == "time_last" and has_event_ts:
+            w_last = Window.partitionBy("user_id").orderBy(
+                F.col("event_ts").desc(),
+                F.col("item_id").asc(),
+            )
+            ranked = raw.withColumn("rn_last", F.row_number().over(w_last))
+            test_raw = ranked.filter(F.col("rn_last") == 1).drop("rn_last")
+            train_raw = ranked.filter(F.col("rn_last") > 1).drop("rn_last")
+            u_tr = train_raw.select("user_id").distinct()
+            test_raw = test_raw.join(u_tr, "user_id", "inner")
+            protocol_train_test = (
+                "Train/test: TIME — last event per user is test (tie-break by item_id); "
+                "profiles from strictly prior train history only."
+            )
+        else:
+            if eval_mode == "time_last" and not has_event_ts:
+                print("RECSYS_EVAL=time_last but no event_ts column; using loo_pos.")
+            elif eval_mode not in ("loo_pos", "time_last"):
+                print(
+                    "Unknown RECSYS_EVAL={!r}; using loo_pos.".format(
+                        os.environ.get("RECSYS_EVAL", "")
+                    )
+                )
+            eval_mode = "loo_pos"
+            pos = raw.filter(F.col("label") == 1)
+            w_loo = Window.partitionBy("user_id").orderBy(F.col("item_id").asc())
+            pos_r = pos.withColumn("rn_hold", F.row_number().over(w_loo))
+            hold = pos_r.filter(F.col("rn_hold") == 1).drop("rn_hold")
+            train_raw = raw.join(
+                hold.select("user_id", "item_id"),
+                ["user_id", "item_id"],
+                "left_anti",
+            )
+            test_raw = hold
+            u_tr = train_raw.select("user_id").distinct()
+            test_raw = test_raw.join(u_tr, "user_id", "inner")
+            protocol_train_test = (
+                "Train/test: LOO — one held-out positive per user (min item_id among positives); "
+                "profiles from remaining train rows only."
+            )
+
+    train_raw.createOrReplaceTempView("raw_events")
     hive_sql = (pipe_dir / "hive_compat.sql").read_text(encoding="utf-8")
     for stmt in hive_sql.split(";"):
         lines = [
@@ -171,36 +268,49 @@ def main():
         )
     )
 
-    joined = raw.join(rat_df, ["user_id", "item_id"], "inner")
-    joined = joined.join(
-        spark.table("user_profile"), on="user_id", how="left"
-    ).join(spark.table("item_profile"), on="item_id", how="left")
+    up = spark.table("user_profile")
+    ip = spark.table("item_profile")
 
-    joined = joined.withColumn(
-        "log_price", F.log1p(F.col("price").cast("double"))
-    ).withColumn("log_like", F.log1p(F.col("like_num").cast("double")))
+    def build_joined(events_df):
+        j = events_df.join(rat_df, ["user_id", "item_id"], "inner")
+        j = j.join(up, on="user_id", how="left").join(ip, on="item_id", how="left")
+        j = j.withColumn(
+            "ip_log_price",
+            F.log1p(F.coalesce(F.col("ip_price").cast("double"), F.lit(0.0))),
+        ).withColumn(
+            "ip_log_like",
+            F.log1p(F.coalesce(F.col("ip_like_num").cast("double"), F.lit(0.0))),
+        ).withColumn(
+            "ip_interaction_rate",
+            F.coalesce(F.col("ip_interaction_rate").cast("double"), F.lit(0.0)),
+        )
+        for c in (
+            "up_age",
+            "up_gender",
+            "up_user_level",
+            "up_purchase_freq",
+            "up_register_days",
+        ):
+            j = j.withColumn(
+                c, F.coalesce(F.col(c).cast("double"), F.lit(0.0))
+            )
+        return j
 
     feat_cols = [
-        "age",
-        "gender",
-        "user_level",
-        "purchase_freq",
-        "register_days",
-        "log_price",
-        "log_like",
-        "interaction_rate",
-        "implicit",
+        "up_age",
+        "up_gender",
+        "up_user_level",
+        "up_purchase_freq",
+        "up_register_days",
+        "ip_log_price",
+        "ip_log_like",
+        "ip_interaction_rate",
     ]
-    for c in feat_cols:
-        joined = joined.withColumn(
-            c, F.coalesce(F.col(c).cast("double"), F.lit(0.0))
-        )
 
-    # --- User-level train / test (avoid same user in both) ---
-    all_users = joined.select("user_id").distinct()
-    train_u, test_u = all_users.randomSplit([0.75, 0.25], seed=42)
-    train_df_full = joined.join(train_u, "user_id", "inner")
-    test_df = joined.join(test_u, "user_id", "inner")
+    train_df_full = build_joined(train_raw)
+    test_df = build_joined(test_raw)
+    n_users_train = int(train_raw.select("user_id").distinct().count())
+    n_users_test = int(test_raw.select("user_id").distinct().count())
 
     # --- Negative sampling on train (target ~1:2 pos:neg) ---
     pos = train_df_full.filter(F.col("label") == 1)
@@ -282,28 +392,66 @@ def main():
         .toDF("user_id", "item_id", "cf_score")
     )
 
-    users = raw.groupBy("user_id").agg(
-        F.max(F.col("age")).alias("age"),
-        F.max(F.col("gender")).alias("gender"),
-        F.max(F.col("user_level")).alias("user_level"),
-        F.avg(F.col("purchase_freq")).alias("purchase_freq"),
-        F.avg(F.col("register_days")).alias("register_days"),
-    )
-    items = raw.groupBy("item_id").agg(
-        F.avg(F.col("price")).alias("price"),
-        F.avg(F.col("like_num")).alias("like_num"),
-        F.avg(F.col("interaction_rate")).alias("interaction_rate"),
+    truth_pos = (
+        test_df.filter(F.col("label") == 1).select("user_id", "item_id").distinct()
     )
 
-    cand = cf.join(users, "user_id", "left").join(items, "item_id", "left")
+    cf_top_m = max(10, min(500, int(os.environ.get("RECSYS_CF_HIT_M", "50"))))
+    cf_utest = cf.join(test_df.select("user_id").distinct(), "user_id", "inner")
+    w_tm = Window.partitionBy("user_id").orderBy(F.col("cf_score").desc())
+    cf_band = cf_utest.withColumn("rk_cf", F.row_number().over(w_tm)).filter(
+        F.col("rk_cf") <= F.lit(cf_top_m)
+    )
+    nt_pos = truth_pos.count()
+    n_in_cf_band = truth_pos.alias("tp").join(
+        cf_band.select("user_id", "item_id").alias("cf"),
+        ["user_id", "item_id"],
+        "inner",
+    ).count()
+    cf_only_topm_hit = (
+        float(n_in_cf_band) / float(nt_pos)
+        if nt_pos
+        else 0.0
+    )
+
+    cand = cf.join(up, "user_id", "left").join(ip, "item_id", "left")
     cand = cand.withColumn(
-        "log_price", F.log1p(F.col("price").cast("double"))
-    ).withColumn("log_like", F.log1p(F.col("like_num").cast("double")))
-    cand = cand.withColumn("implicit", F.lit(0.0))
-    for c in feat_cols:
+        "ip_log_price",
+        F.log1p(F.coalesce(F.col("ip_price").cast("double"), F.lit(0.0))),
+    ).withColumn(
+        "ip_log_like",
+        F.log1p(F.coalesce(F.col("ip_like_num").cast("double"), F.lit(0.0))),
+    ).withColumn(
+        "ip_interaction_rate",
+        F.coalesce(F.col("ip_interaction_rate").cast("double"), F.lit(0.0)),
+    )
+    for c in (
+        "up_age",
+        "up_gender",
+        "up_user_level",
+        "up_purchase_freq",
+        "up_register_days",
+    ):
         cand = cand.withColumn(
             c, F.coalesce(F.col(c).cast("double"), F.lit(0.0))
         )
+
+    cand_keys = cand.select("user_id", "item_id").distinct()
+    missing_gt = truth_pos.join(cand_keys, ["user_id", "item_id"], "left_anti")
+    n_gt_not_in_cf = int(missing_gt.count())
+    if n_gt_not_in_cf:
+        filler = (
+            test_df.join(missing_gt, ["user_id", "item_id"], "inner")
+            .withColumn("cf_score", F.lit(0.0))
+        )
+        cand_col_list = cand.columns
+        for col in cand_col_list:
+            if col not in filler.columns:
+                filler = filler.withColumn(
+                    col,
+                    F.lit(None).cast(cand.schema[col].dataType),
+                )
+        cand = cand.unionByName(filler.select(*cand_col_list))
 
     cand_labeled = cand.join(
         raw.select("user_id", "item_id", "label"),
@@ -345,6 +493,16 @@ def main():
                 auc_by_alpha.append(0.0)
     else:
         auc_by_alpha = [0.0] * len(alphas)
+
+    auc_val_p = 0.0
+    auc_val_cf = 0.0
+    if len(cand_val_pdf) > 5 and cand_val_pdf["label"].nunique() > 1:
+        yv = cand_val_pdf["label"].values
+        try:
+            auc_val_p = float(roc_auc_score(yv, cand_val_pdf["p_buy"].values))
+            auc_val_cf = float(roc_auc_score(yv, cand_val_pdf["cf_norm"].values))
+        except ValueError:
+            pass
 
     best_alpha = float(alphas[int(np.argmax(auc_by_alpha))]) if auc_by_alpha else 0.55
     if max(auc_by_alpha) == 0:
@@ -558,14 +716,33 @@ def main():
 
     lines = [
         "=== Protocol ===",
-        "Train/test: USER-level split 75/25 (seed=42); no user in both sets.",
-        "Train internal: 85/15 train/val (seed=11) for model & alpha selection.",
-        "Negative sampling: train negatives downsampled toward ~1:3 pos:neg on train users.",
+        protocol_train_test,
+        "Features (classifiers): train-only user_profile + item_profile aggregates only; "
+        "no row-level like_num/rating, interaction_rate, purchase_intent, or MR implicit.",
+        "Default RECSYS_EVAL: time_last if CSV has event_ts, else loo_pos. "
+        "Override: time_last | loo_pos | user_random.",
+        "Optional MovieLens fixed split: RECSYS_ML100K_OFFICIAL_SPLIT=u1|u2|...|ua|ub "
+        "(reads {split}.base / {split}.test under RECSYS_ML100K_SPLIT_DIR, default data/ml100k/ml-100k).",
+        "Train internal: 85/15 train/val (seed=11) on train split rows for model & α.",
+        "Negative sampling: train negatives downsampled toward ~1:3 pos:neg on train split.",
         "Item-CF: user-level co-occurrence with category proxy item (see report).",
         "Fusion: best model among LR/GBT/RF by val AUC; α chosen by val AUC on labeled candidates.",
         "",
+        "=== Candidates (ranking coverage) ===",
+        "Plain CF: fraction of test (user,item) positives in MR CF candidate list ranked top-{:d} "
+        "by cf_score (among test users): {:.4f}.".format(cf_top_m, cf_only_topm_hit),
+        "Rows injected before model scoring (truth in test but missing from MR CF list): {}".format(
+            n_gt_not_in_cf
+        ),
+        "",
         "=== Models (val AUC) ===",
-        "LR={:.4f} GBT={:.4f} RF={:.4f} | selected={}".format(auc_lr, auc_gbt, auc_rf, best_name),
+        "LR={:.4f} GBT={:.4f} RF={:.4f} | selected={}".format(
+            auc_lr, auc_gbt, auc_rf, best_name
+        ),
+        "Validation ROC-AUC: p_buy={:.4f}  cf_norm={:.4f} (candidate rows pooled with fused α scan)".format(
+            auc_val_p,
+            auc_val_cf,
+        ),
         "best_alpha={:.4f}".format(best_alpha),
         "",
         "=== Test users (diversified Top10, max 4/category) ===",
@@ -588,6 +765,11 @@ def main():
         "=== Hive / SQL ===",
         "hive_compat.sql runs in Spark SQL (HiveQL-compatible); no HiveServer required for this repo.",
         "Rollup views: hive_user_rollups, hive_item_rollups (see pipeline/hive_compat.sql).",
+        "",
+        "=== Caveat (temporal vs MR) ===",
+        "Co-occurrence / CF MR jobs read full HDFS raw.csv; time-based evaluation removes label/feature "
+        "leakage in Spark, but CF still exploits future interactions vs the test holdout unless MR is "
+        "re-run on train-only rows.",
         "",
         "=== Hadoop / YARN (course) ===",
         "MapReduce: set RECSYS_USE_YARN=1 in pipeline/run_mapreduce.sh context; YARN UI http://localhost:8088 .",
@@ -655,6 +837,113 @@ def main():
     fig.tight_layout()
     fig.savefig(out_dir / "chart_cf_vs_fused.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
+
+    # --- Extra charts for report ---
+    fig, ax = plt.subplots(figsize=(5.5, 4))
+    mnames = ["LR", "GBT", "RF"]
+    mvals = [auc_lr, auc_gbt, auc_rf]
+    bar_colors = ["#457b9d", "#457b9d", "#457b9d"]
+    bi = mnames.index(best_name) if best_name in mnames else 0
+    bar_colors[bi] = "#e63946"
+    ax.bar(mnames, mvals, color=bar_colors, edgecolor="#1d3557", linewidth=0.6)
+    ax.set_ylabel("验证集 AUC")
+    ax.set_title("分类器对比（验证集，选中={}）".format(best_name))
+    ax.set_ylim(0, min(1.08, max(mvals) * 1.12 + 0.02) if mvals else 1.0)
+    ax.grid(True, axis="y", alpha=0.3)
+    for i, v in enumerate(mvals):
+        ax.text(i, v + 0.02, "{:.3f}".format(v), ha="center", va="bottom", fontsize=9)
+    fig.tight_layout()
+    fig.savefig(out_dir / "chart_model_val_auc.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    def _plot_strat_bar(df_strat, ax, title, max_rows=10):
+        if df_strat is None or len(df_strat) == 0:
+            ax.text(0.5, 0.5, "无数据", ha="center", va="center", transform=ax.transAxes)
+            ax.set_title(title)
+            return
+        d = df_strat.sort_values("mean_hit10", ascending=True).tail(max_rows)
+        y = np.arange(len(d))
+        ax.barh(y, d["mean_hit10"].values, color="#2a9d8f", edgecolor="#264653", height=0.65)
+        ax.set_yticks(y)
+        lbl = d["bucket"].astype(str).str.replace("dom_cat=", "").str.replace("gender=", "")
+        ax.set_yticklabels(lbl, fontsize=8)
+        ax.set_xlabel("平均全局命中率@10")
+        ax.set_title(title)
+        ax.set_xlim(0, max(0.05, d["mean_hit10"].max() * 1.15))
+
+    df_sg = pd.DataFrame(strat_rows) if strat_rows else pd.DataFrame()
+    df_sa = pd.DataFrame(strat_act) if strat_act else pd.DataFrame()
+    df_sd = pd.DataFrame(strat_dom) if strat_dom else pd.DataFrame()
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4.2))
+    _plot_strat_bar(df_sg, axes[0], "按性别")
+    _plot_strat_bar(df_sa, axes[1], "按活跃度分桶")
+    _plot_strat_bar(df_sd, axes[2], "按主导品类（Top10 桶）", max_rows=10)
+    fig.suptitle("分层：全局命中率@10（测试用户）", y=1.02, fontsize=12)
+    fig.tight_layout()
+    fig.savefig(out_dir / "chart_stratified_global_hit.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    metric_names = ["Strict\nP@10", "Strict\nR@10", "Global\nhit@10", "Recall@10\n(rel)", "NDCG@10"]
+    metric_vals = [p_f, r_f, g_f, r10, n10]
+    x = np.arange(len(metric_names))
+    ax.bar(x, metric_vals, color=["#457b9d", "#457b9d", "#2a9d8f", "#e9c46a", "#f4a261"], edgecolor="#264653")
+    ax.set_xticks(x)
+    ax.set_xticklabels(metric_names, fontsize=9)
+    ax.set_ylabel("数值")
+    ax.set_title("测试集排序 / 命中指标汇总（多样性 Top10）")
+    ax.set_ylim(0, max(0.08, max(metric_vals) * 1.25) if metric_vals else 1.0)
+    ax.grid(True, axis="y", alpha=0.3)
+    for i, v in enumerate(metric_vals):
+        ax.text(i, v + max(metric_vals) * 0.02 if metric_vals else 0.02, "{:.3f}".format(v), ha="center", va="bottom", fontsize=8)
+    fig.tight_layout()
+    fig.savefig(out_dir / "chart_ranking_metrics.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.hist(user_hits, bins=11, range=(0, 1.05), color="#9b5de5", edgecolor="#3d1f5c", alpha=0.85)
+    ax.set_xlabel("每用户 Strict Precision@10")
+    ax.set_ylabel("用户数")
+    ax.set_title("测试用户：Strict P@10 分布（Bootstrap mean={:.4f}）".format(boot_mean))
+    ax.grid(True, axis="y", alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(out_dir / "chart_strict_p_hist.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(5, 4))
+    ax.bar(
+        ["训练用户", "测试用户"],
+        [n_users_train, n_users_test],
+        color=["#264653", "#2a9d8f"],
+        edgecolor="#1d3557",
+    )
+    ax.set_ylabel("用户数（train_raw / test_raw 去重 user_id）")
+    ax.set_title("Train / test 用户数（当前切分协议）")
+    for i, v in enumerate([n_users_train, n_users_test]):
+        ax.text(i, v + max(n_users_train, n_users_test) * 0.02, str(v), ha="center", va="bottom")
+    fig.tight_layout()
+    fig.savefig(out_dir / "chart_train_test_users.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    if len(cand_test_pdf) > 10 and cand_test_pdf["label"].nunique() > 1:
+        fig, ax = plt.subplots(figsize=(6, 4))
+        s0 = cand_test_pdf.loc[cand_test_pdf["label"] == 0, "fused"]
+        s1 = cand_test_pdf.loc[cand_test_pdf["label"] == 1, "fused"]
+        ax.hist(
+            [s0.dropna().values, s1.dropna().values],
+            bins=25,
+            label=["label=0", "label=1"],
+            color=["#8d99ae", "#e63946"],
+            alpha=0.75,
+            edgecolor="white",
+        )
+        ax.set_xlabel("fused 分数")
+        ax.set_ylabel("候选对条数")
+        ax.set_title("测试集候选：fused 分数分布（按标签）")
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig(out_dir / "chart_fused_score_by_label.png", dpi=150, bbox_inches="tight")
+        plt.close(fig)
 
     spark.stop()
     print("Wrote outputs to {}".format(out_dir))

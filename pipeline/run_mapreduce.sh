@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 export PYTHONIOENCODING=utf-8
+# Hadoop streaming forks Python without a TTY: stdout is block-buffered unless we use -u.
+# Shell export alone is unreliable inside the map/child process; always pass python3 -u below.
+export PYTHONUNBUFFERED=1
+PY="${PY:-python3 -u}"
 export PATH="/opt/hadoop-3.2.1/bin:/opt/hadoop-3.2.1/sbin:${PATH:-}"
 STREAM_JAR="/opt/hadoop-3.2.1/share/hadoop/tools/lib/hadoop-streaming-3.2.1.jar"
 ROOT="/workspace"
 PIPE="${ROOT}/pipeline"
 RAW_HDFS="/recsys/raw.csv"
 TMP="${PIPE}/.mr_tmp"
+# Default ecommerce CSV; override with RECSYS_RAW=/workspace/recsys_ml100k.csv for MovieLens
+RECSYS_RAW="${RECSYS_RAW:-${ROOT}/social_ecommerce_data.csv}"
 mkdir -p "${TMP}" "${ROOT}/output"
 TIME_LOG="${ROOT}/output/pipeline_mr_timing.txt"
 
@@ -25,11 +31,15 @@ logt "=== MapReduce pipeline start ==="
 
 hdfs dfs -rm -r -f /recsys || true
 hdfs dfs -mkdir -p /recsys
-hdfs dfs -put -f "${ROOT}/social_ecommerce_data.csv" "${RAW_HDFS}"
+if [[ ! -f "${RECSYS_RAW}" ]]; then
+  echo "ERROR: raw CSV not found: ${RECSYS_RAW}" >&2
+  exit 1
+fi
+hdfs dfs -put -f "${RECSYS_RAW}" "${RAW_HDFS}"
 
 echo "=== Category top-1 item (proxy for user-level co-occurrence) ==="
 T=$(date +%s)
-python3 "${PIPE}/compute_cat_top1.py" "${ROOT}/social_ecommerce_data.csv" > "${TMP}/cat_top1.tsv"
+python3 "${PIPE}/compute_cat_top1.py" "${RECSYS_RAW}" > "${TMP}/cat_top1.tsv"
 hdfs dfs -put -f "${TMP}/cat_top1.tsv" /recsys/cat_top1.tsv
 logt "cat_top1 local+hdfs $(( $(date +%s) - T ))s"
 
@@ -41,8 +51,8 @@ hadoop jar "${STREAM_JAR}" \
   -D mapreduce.job.name=recsys_A1 \
   -D stream.num.map.output.key.fields=1 \
   -files "${PIPE}/mr_a1_map.py,${PIPE}/mr_a1_red.py" \
-  -mapper "python3 mr_a1_map.py" \
-  -reducer "python3 mr_a1_red.py" \
+  -mapper "${PY} mr_a1_map.py" \
+  -reducer "${PY} mr_a1_red.py" \
   -input "${RAW_HDFS}" \
   -output /recsys/a1
 logt "Job A1 $(( $(date +%s) - T ))s"
@@ -55,8 +65,8 @@ hadoop jar "${STREAM_JAR}" \
   -D mapreduce.job.name=recsys_A2 \
   -D stream.num.map.output.key.fields=1 \
   -files "${PIPE}/mr_a2_map.py,${PIPE}/mr_a2_red.py" \
-  -mapper "python3 mr_a2_map.py" \
-  -reducer "python3 mr_a2_red.py" \
+  -mapper "${PY} mr_a2_map.py" \
+  -reducer "${PY} mr_a2_red.py" \
   -input /recsys/a1 \
   -output /recsys/ratings
 logt "Job A2 $(( $(date +%s) - T ))s"
@@ -69,8 +79,8 @@ hadoop jar "${STREAM_JAR}" \
   -D mapreduce.job.name=recsys_item_totals \
   -D stream.num.map.output.key.fields=1 \
   -files "${PIPE}/mr_item_totals_map.py,${PIPE}/mr_item_totals_red.py" \
-  -mapper "python3 mr_item_totals_map.py" \
-  -reducer "python3 mr_item_totals_red.py" \
+  -mapper "${PY} mr_item_totals_map.py" \
+  -reducer "${PY} mr_item_totals_red.py" \
   -input /recsys/ratings \
   -output /recsys/item_totals
 logt "item_totals $(( $(date +%s) - T ))s"
@@ -83,8 +93,8 @@ hadoop jar "${STREAM_JAR}" \
   -D mapreduce.job.name=recsys_B1a_user_proxy \
   -D stream.num.map.output.key.fields=1 \
   -files "${TMP}/cat_top1.tsv#cat_top1.tsv,${PIPE}/mr_b1_user_proxy_map.py,${PIPE}/mr_b1_red.py" \
-  -mapper "python3 mr_b1_user_proxy_map.py" \
-  -reducer "python3 mr_b1_red.py" \
+  -mapper "${PY} mr_b1_user_proxy_map.py" \
+  -reducer "${PY} mr_b1_red.py" \
   -input "${RAW_HDFS}" \
   -output /recsys/b1a
 logt "B1a $(( $(date +%s) - T ))s"
@@ -98,7 +108,7 @@ hadoop jar "${STREAM_JAR}" \
   -D stream.num.map.output.key.fields=2 \
   -files "${PIPE}/mr_cooc_sum_red.py" \
   -mapper "cat" \
-  -reducer "python3 mr_cooc_sum_red.py" \
+  -reducer "${PY} mr_cooc_sum_red.py" \
   -input /recsys/b1a \
   -output /recsys/cooc
 logt "B1b $(( $(date +%s) - T ))s"
@@ -111,8 +121,8 @@ hadoop jar "${STREAM_JAR}" \
   -D mapreduce.job.name=recsys_purchases \
   -D stream.num.map.output.key.fields=1 \
   -files "${PIPE}/mr_purchase_map.py,${PIPE}/mr_purchase_red.py" \
-  -mapper "python3 mr_purchase_map.py" \
-  -reducer "python3 mr_purchase_red.py" \
+  -mapper "${PY} mr_purchase_map.py" \
+  -reducer "${PY} mr_purchase_red.py" \
   -input "${RAW_HDFS}" \
   -output /recsys/purchases
 logt "purchases $(( $(date +%s) - T ))s"
@@ -127,8 +137,8 @@ hadoop jar "${STREAM_JAR}" \
   -D mapreduce.job.name=recsys_B2_cosine \
   -D stream.num.map.output.key.fields=2 \
   -files "${TMP}/item_totals.txt#item_totals.txt,${PIPE}/mr_b2_map.py,${PIPE}/mr_b2_red.py" \
-  -mapper "python3 mr_b2_map.py" \
-  -reducer "python3 mr_b2_red.py" \
+  -mapper "${PY} mr_b2_map.py" \
+  -reducer "${PY} mr_b2_red.py" \
   -input /recsys/cooc \
   -output /recsys/item_sim
 logt "B2 $(( $(date +%s) - T ))s"

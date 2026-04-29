@@ -4,6 +4,12 @@ pipeline/.mr_tmp/
 # Local wordcount / scratch MR output
 wc-out-docker/
 
+# Generated from MovieLens (rebuild with ml100k_build_csv.py)
+recsys_ml100k.csv
+
+# MovieLens ml-100k extract (download from GroupLens; ~17MB)
+data/ml100k/ml-100k/
+
 # Python
 __pycache__/
 *.py[cod]
