@@ -11,8 +11,8 @@ ROOT="/workspace"
 PIPE="${ROOT}/pipeline"
 RAW_HDFS="/recsys/raw.csv"
 TMP="${PIPE}/.mr_tmp"
-# Default ecommerce CSV; override with RECSYS_RAW=/workspace/recsys_ml100k.csv for MovieLens
-RECSYS_RAW="${RECSYS_RAW:-${ROOT}/social_ecommerce_data.csv}"
+# Spark/MR unified CSV from MovieLens (built by ml100k_build_csv.py → recsys_ml100k.csv).
+RECSYS_RAW="${RECSYS_RAW:-${ROOT}/recsys_ml100k.csv}"
 mkdir -p "${TMP}" "${ROOT}/output"
 TIME_LOG="${ROOT}/output/pipeline_mr_timing.txt"
 

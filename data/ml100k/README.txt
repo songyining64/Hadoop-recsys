@@ -10,8 +10,8 @@ Mirror: https://www.kaggle.com/datasets/prajitdatta/movielens-100k-dataset
 
 After unzip you may have ml-100k/u.data etc.; either move *.data *.item *.user into this folder or point ML100K_DIR to the unzip root.
 
-Run full pipeline:
-  RECSYS_DATASET=ml100k bash pipeline/run_all_docker.sh
+Run full pipeline (from project root):
+  bash pipeline/run_all_docker.sh
 
-Optional:
-  ML100K_DIR=/path/to/ml-100k RECSYS_DATASET=ml100k bash pipeline/run_all_docker.sh
+Custom data path:
+  ML100K_DIR=/path/to/ml-100k bash pipeline/run_all_docker.sh

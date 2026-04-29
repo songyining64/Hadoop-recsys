@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Build recsys-shaped CSV (same columns as social_ecommerce_data.csv plus event_ts)
-from MovieLens 100K. ``event_ts`` is Unix time from u.data for time-based evaluation in Spark.
+Build unified Spark/MR CSV from MovieLens 100K (tabular schema used by hive_compat + MR).
+``event_ts`` is Unix time from u.data for time-based evaluation in Spark.
 
 Expected files under ML100K_DIR (names may be lowercase after unzip):
   u.data   user id | item id | rating | timestamp (tab)

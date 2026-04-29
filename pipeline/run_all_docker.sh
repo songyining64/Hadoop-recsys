@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Run from project root on the host (not inside a container):
 #   bash pipeline/run_all_docker.sh
-# MovieLens 100K (place u.data, u.item, u.user under data/ml100k or set ML100K_DIR):
-#   RECSYS_DATASET=ml100k bash pipeline/run_all_docker.sh
+# Data: MovieLens 100K — place u.data, u.item, u.user under data/ml100k (or ML100K_DIR).
 # Optional: run MapReduce on YARN instead of local mode:
 #   RECSYS_USE_YARN=1 bash pipeline/run_all_docker.sh
 # Skip image rebuild if layers already local (Hub 超时时可先 docker pull 再设此变量):
@@ -10,20 +9,18 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-if [[ "${RECSYS_DATASET:-ecommerce}" == "ml100k" ]]; then
-  ML100K_DIR="${ML100K_DIR:-${ROOT}/data/ml100k}"
-  echo "== Build recsys CSV from MovieLens 100K: ${ML100K_DIR} =="
-  python3 "${ROOT}/pipeline/ml100k_build_csv.py" "${ML100K_DIR}" "${ROOT}/recsys_ml100k.csv"
-fi
+ML100K_DIR="${ML100K_DIR:-${ROOT}/data/ml100k}"
+echo "== Build recsys CSV from MovieLens 100K: ${ML100K_DIR} =="
+python3 "${ROOT}/pipeline/ml100k_build_csv.py" "${ML100K_DIR}" "${ROOT}/recsys_ml100k.csv"
 
 cd "${ROOT}/hadoop-docker"
 
-MR_ENV=( -e "RECSYS_USE_YARN=${RECSYS_USE_YARN:-0}" )
-if [[ "${RECSYS_DATASET:-ecommerce}" == "ml100k" ]]; then
-  MR_ENV+=( -e "RECSYS_RAW=/workspace/recsys_ml100k.csv" )
-fi
+MR_ENV=(
+  -e "RECSYS_USE_YARN=${RECSYS_USE_YARN:-0}"
+  -e "RECSYS_RAW=/workspace/recsys_ml100k.csv"
+)
 
-SPARK_ENV=()
+declare -a SPARK_ENV=()
 [[ -n "${RECSYS_ML100K_OFFICIAL_SPLIT:-}" ]] && SPARK_ENV+=( -e "RECSYS_ML100K_OFFICIAL_SPLIT=${RECSYS_ML100K_OFFICIAL_SPLIT}" )
 [[ -n "${RECSYS_ML100K_SPLIT_DIR:-}" ]] && SPARK_ENV+=( -e "RECSYS_ML100K_SPLIT_DIR=${RECSYS_ML100K_SPLIT_DIR}" )
 [[ -n "${RECSYS_EVAL:-}" ]] && SPARK_ENV+=( -e "RECSYS_EVAL=${RECSYS_EVAL}" )
@@ -53,7 +50,7 @@ for i in $(seq 1 120); do
 done
 
 # Docker: RECSYS_DOCKER_EXEC_TTY=1 forces -t (line-buffered logs); 0 forces -T; default auto=tty iff stdout is a tty.
-echo "== MapReduce pipeline (namenode; RECSYS_USE_YARN=${RECSYS_USE_YARN:-0}; dataset=${RECSYS_DATASET:-ecommerce}) =="
+echo "== MapReduce pipeline (namenode; RECSYS_USE_YARN=${RECSYS_USE_YARN:-0}; MovieLens raw → HDFS) =="
 DOCKER_IT=( -T )
 case "${RECSYS_DOCKER_EXEC_TTY:-auto}" in
   1|yes|true|on|force) DOCKER_IT=( -t ) ;;
@@ -65,7 +62,11 @@ esac
 docker compose exec "${DOCKER_IT[@]}" "${MR_ENV[@]}" namenode bash /workspace/pipeline/run_mapreduce.sh
 
 echo "== Spark / LR / fusion / plots (spark-runner) =="
-docker compose exec "${DOCKER_IT[@]}" spark-runner "${SPARK_ENV[@]}" bash /workspace/pipeline/run_spark.sh
+if ((${#SPARK_ENV[@]} > 0)); then
+  docker compose exec "${DOCKER_IT[@]}" spark-runner "${SPARK_ENV[@]}" bash /workspace/pipeline/run_spark.sh
+else
+  docker compose exec "${DOCKER_IT[@]}" spark-runner bash /workspace/pipeline/run_spark.sh
+fi
 
 echo "Done. Outputs: ${ROOT}/output (if volume writable) or check /workspace/output inside spark-runner."
 ls -la "${ROOT}/output" 2>/dev/null || docker compose exec -T spark-runner ls -la /workspace/output

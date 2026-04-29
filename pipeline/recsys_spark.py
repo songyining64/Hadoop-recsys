@@ -102,6 +102,10 @@ def bootstrap_mean(vals, n_boot=400, seed=42):
 
 def main():
     t0 = time.time()
+
+    def _phase(msg):
+        print("[recsys_spark] {}".format(msg), flush=True)
+
     out_dir = Path(os.environ.get("RECSYS_OUT", "/workspace/output"))
     out_dir.mkdir(parents=True, exist_ok=True)
     setup_plot_style()
@@ -473,6 +477,10 @@ def main():
     )
 
     val_users_df = val_sub.select("user_id").distinct()
+    _phase(
+        "scored all candidates built; pulling val-users rows to pandas (may take "
+        "several minutes on large MR candidate lists)…"
+    )
     cand_val_pdf = (
         scored.join(val_users_df, "user_id", "inner")
         .select("user_id", "item_id", "p_buy", "cf_norm", "label")
@@ -534,6 +542,7 @@ def main():
         )
         return r.toPandas()
 
+    _phase("computing per-user top-10 by fused (Spark window + shuffle)…")
     pdf_fused = topk_pdf(scored, "fused", 10)
     item_cat_pdf = raw.groupBy("item_id").agg(F.max("category").alias("category")).toPandas()
     item_to_cat = dict(zip(item_cat_pdf["item_id"].astype(str), item_cat_pdf["category"].astype(str)))
@@ -583,6 +592,7 @@ def main():
         return float(np.mean(nds)) if nds else 0.0
 
     p_f, r_f = precision_recall_strict(pdf_div)
+    _phase("computing per-user top-10 by cf_norm…")
     pdf_cf_top = topk_pdf(scored, "cf_norm", 10)
     g_cf = hit_rate_global_pool(pdf_cf_top)
     g_f = hit_rate_global_pool(pdf_div)
@@ -598,6 +608,10 @@ def main():
 
     # PR / ROC on labeled candidates (test users only)
     test_users_df = test_df.select("user_id").distinct()
+    _phase(
+        "pulling ALL test-user candidate pairs to pandas for ROC/AP (often the "
+        "slowest step: size ≈ (#test users)×(MR candidates per user))…"
+    )
     cand_test_pdf = (
         scored.join(test_users_df, "user_id", "inner")
         .select("p_buy", "cf_norm", "fused", "label")
@@ -630,6 +644,7 @@ def main():
     else:
         auc_f, ap_f = 0.0, 0.0
 
+    _phase("writing α-sweep chart…")
     # Alpha curve
     fig, ax = plt.subplots(figsize=(7, 4))
     ax.plot(alphas, auc_by_alpha, "o-", color="#264653")
@@ -643,6 +658,7 @@ def main():
     fig.savefig(out_dir / "chart_alpha_sweep.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
+    _phase("stratified tables (Spark joins + pandas)…")
     # Stratified: gender
     gen_pdf = (
         spark.createDataFrame(pdf_div)
@@ -660,6 +676,7 @@ def main():
     pd.DataFrame(strat_rows).to_csv(out_dir / "stratified_gender.csv", index=False)
 
     # Stratified: activity (event count tertiles from hive_user_rollups)
+    _phase("loading hive_user_rollups to pandas…")
     act_pdf = spark.table("hive_user_rollups").select("user_id", "event_cnt").toPandas()
     am = pdf_div.merge(act_pdf, on="user_id", how="left")
     am["event_cnt"] = am["event_cnt"].fillna(0.0)
@@ -689,6 +706,7 @@ def main():
     pd.DataFrame(strat_act).to_csv(out_dir / "stratified_activity.csv", index=False)
 
     # Stratified: dominant category (most frequent category in user history)
+    _phase("dominant category per user (window over raw)…")
     uc = raw.groupBy("user_id", "category").count().withColumnRenamed("count", "cc")
     wdom = Window.partitionBy("user_id").orderBy(F.desc("cc"), F.asc("category"))
     dom_pdf = (
@@ -781,6 +799,7 @@ def main():
     ]
     (out_dir / "metrics.txt").write_text("\n".join(lines), encoding="utf-8")
 
+    _phase("writing remaining charts…")
     # Category chart (diversified)
     fused_items = pdf_div.merge(item_cat_pdf, on="item_id", how="left")
     hit_cat = fused_items.groupby("category").size().reset_index(name="rec_count")

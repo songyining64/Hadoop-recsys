@@ -7,7 +7,7 @@ from collections import defaultdict
 
 def main():
     if len(sys.argv) < 2:
-        sys.stderr.write("usage: compute_cat_top1.py social_ecommerce_data.csv\n")
+        sys.stderr.write("usage: compute_cat_top1.py RAW_CSV\n")
         sys.exit(1)
     path = sys.argv[1]
     counts = defaultdict(lambda: defaultdict(int))

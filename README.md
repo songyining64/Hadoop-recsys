@@ -1,22 +1,14 @@
 # Hadoop-recsys
 
-基于 **Docker + HDFS + MapReduce（Streaming）+ Spark** 的离线推荐实验：从**表格化日志**构造隐式评分与 **Item-CF** 候选，再用 **Spark ML**（LR / GBT / RF）打分并与协同过滤融合，输出指标与图表。
+基于 **Docker + HDFS + MapReduce（Streaming）+ Spark** 的离线推荐实验：使用 **MovieLens 100K** 构造隐式评分与 **Item-CF** 候选，再用 **Spark ML**（LR / GBT / RF）打分并与协同过滤融合，输出指标与图表。
 
-支持两种数据源：
-
-| 模式 | 数据 | 命令 |
-|------|------|------|
-| 默认 | 根目录 **`social_ecommerce_data.csv`** | `bash pipeline/run_all_docker.sh` |
-| MovieLens 100K | `u.data` / `u.item` / `u.user`（见 `data/ml100k/README.txt`） | `RECSYS_DATASET=ml100k bash pipeline/run_all_docker.sh` |
-
-MovieLens 模式下会先用 **`pipeline/ml100k_build_csv.py`** 生成与电商表头一致的 **`recsys_ml100k.csv`**（评分 ≥4 为 `label=1`；主类型来自 `u.item` 类型位），再走同一套 MR + Spark。
+流水线会先运行 **`pipeline/ml100k_build_csv.py`** 生成 **`recsys_ml100k.csv`**（评分 ≥4 为 `label=1`；主类型来自 `u.item`；含 `event_ts` 供时间切分），再执行同一套 MR + Spark。
 
 ## 环境要求
 
 - Docker Desktop（支持 `docker compose`）
 - 机器内存建议 **≥ 8GB**（Spark driver 默认约 3GB）
-- **电商默认**：项目根目录有 **`social_ecommerce_data.csv`**
-- **MovieLens**：将官方 100K 解压，使 `u.data`、`u.item`、`u.user` 位于 **`data/ml100k/`**（或设置 **`ML100K_DIR`** 指向解压目录）
+- 将官方 100K 解压，使 `u.data`、`u.item`、`u.user` 可被找到（默认 **`data/ml100k/`**，或设置 **`ML100K_DIR`**），详见 **`data/ml100k/README.txt`**
 
 ### Docker 拉取 `apache/spark` 超时（`DeadlineExceeded` / `context deadline exceeded`）
 
@@ -31,7 +23,7 @@ MovieLens 模式下会先用 **`pipeline/ml100k_build_csv.py`** 生成与电商�
    `SKIP_DOCKER_BUILD=1 bash pipeline/run_all_docker.sh`  
    或 `cd hadoop-docker && docker compose up -d` 后手动在容器里跑 MR/Spark。
 
-MovieLens 的 **`recsys_ml100k.csv` 已生成成功** 时，说明数据准备没问题；仅 Spark 镜像未构建完成，修好网络后从 **`cd hadoop-docker && docker compose build && docker compose up -d`** 继续即可，不必重新跑 `ml100k_build_csv`。
+**`recsys_ml100k.csv` 能成功生成**时，说明数据准备没问题；仅 Spark 镜像未构建完成，修好网络后从 **`cd hadoop-docker && docker compose build && docker compose up -d`** 继续即可，不必重新跑 `ml100k_build_csv`。
 
 ## 一键运行
 
@@ -41,20 +33,19 @@ MovieLens 的 **`recsys_ml100k.csv` 已生成成功** 时，说明数据准备�
 bash pipeline/run_all_docker.sh
 ```
 
-MovieLens 100K：
+数据不在默认路径时：
 
 ```bash
-RECSYS_DATASET=ml100k bash pipeline/run_all_docker.sh
-# 或数据在其他路径：
-ML100K_DIR=/path/to/ml-100k RECSYS_DATASET=ml100k bash pipeline/run_all_docker.sh
+ML100K_DIR=/path/to/ml-100k bash pipeline/run_all_docker.sh
 ```
 
 脚本会：
 
-1. 构建并启动 `hadoop-docker/docker-compose.yml` 中的栈（Namenode、Datanode、ResourceManager、NodeManager、HistoryServer、Spark 等）
-2. 等待 HDFS **退出 safe mode**
-3. 在 **namenode** 容器内执行 MapReduce 流水线（`run_mapreduce.sh`）
-4. 在 **spark-runner** 容器内执行 `recsys_spark.sh`（特征、训练、融合、评估、作图）
+1. 用 MovieLens 文件生成 **`recsys_ml100k.csv`**
+2. 构建并启动 `hadoop-docker/docker-compose.yml` 中的栈（Namenode、Datanode、ResourceManager、NodeManager、HistoryServer、Spark 等）
+3. 等待 HDFS **退出 safe mode**
+4. 在 **namenode** 容器内执行 MapReduce 流水线（`run_mapreduce.sh`，默认读 **`/workspace/recsys_ml100k.csv`**）
+5. 在 **spark-runner** 容器内执行 `recsys_spark.sh`（特征、训练、融合、评估、作图）
 
 ### MapReduce 使用 YARN（可选）
 
@@ -66,6 +57,14 @@ RECSYS_USE_YARN=1 bash pipeline/run_all_docker.sh
 
 YARN Web UI：<http://localhost:8088>  
 HDFS Namenode UI：<http://localhost:9870>
+
+### 终端里 MR 长时间不打日志（像卡住）
+
+可强制 Docker 分配伪终端：
+
+```bash
+RECSYS_DOCKER_EXEC_TTY=1 bash pipeline/run_all_docker.sh
+```
 
 ### 仅重跑 Spark（HDFS 上已有 MR 产物）
 
@@ -81,7 +80,7 @@ cd hadoop-docker
 docker compose exec -T -e RECSYS_USE_YARN=0 namenode bash /workspace/pipeline/run_mr_tail.sh
 ```
 
-### 仅生成 MovieLens 对齐 CSV（本机调试）
+### 仅生成对齐 CSV（本机调试）
 
 ```bash
 python3 pipeline/ml100k_build_csv.py data/ml100k recsys_ml100k.csv
@@ -101,7 +100,7 @@ python3 pipeline/ml100k_build_csv.py data/ml100k recsys_ml100k.csv
 1. **隐式评分（A1/A2）**：从 CSV 行为字段汇总为 `user#item → score`，写入 HDFS `ratings`
 2. **共现与相似度（B1/B2）**：用户级共现（辅以品类 Top1 商品作 proxy，见 `compute_cat_top1.py` + `mr_b1_user_proxy_map.py`）；余弦相似度；Top-N 邻居
 3. **CF 候选**：`cf_gen_candidates.py` 生成 `user_id, item_id, cf_score` 上传 HDFS
-4. **Spark（`recsys_spark.py`）**：HiveQL 兼容 SQL（`hive_compat.sql`）、用户级划分、负采样、LR/GBT/RF、验证集上选 **α** 融合 CF 与模型概率、多样性截断、AUC/PR、Recall@K、NDCG、bootstrap 等
+4. **Spark（`recsys_spark.py`）**：HiveQL 兼容 SQL（`hive_compat.sql`）、时间/LOO 划分、负采样、LR/GBT/RF、验证集上选 **α** 融合 CF 与模型概率、多样性截断、AUC/PR、Recall@K、NDCG、bootstrap 等
 
 ## 目录结构（节选）
 
@@ -110,8 +109,7 @@ hadoop-docker/          # Compose、Hadoop/Spark 镜像与配置
 pipeline/               # MR 脚本、Spark 主程序、Shell 入口
 data/ml100k/            # 放置 MovieLens u.data / u.item / u.user（见 README.txt）
 output/                 # 运行产物（可提交或本地再生）
-social_ecommerce_data.csv
-recsys_ml100k.csv       # MovieLens 模式生成（默认 .gitignore）
+recsys_ml100k.csv       # 由 ml100k_build_csv 生成（默认 .gitignore）
 README.md
 ```
 

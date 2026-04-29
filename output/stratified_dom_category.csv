@@ -1,7 +1,0 @@
-bucket,mean_hit10,n_users
-dom_cat=Action,0.5681081081081081,370
-dom_cat=Animation,0.7,2
-dom_cat=Comedy,0.5960317460317461,126
-dom_cat=Crime,0.4,1
-dom_cat=Drama,0.5824884792626727,434
-dom_cat=Horror,0.72,10
